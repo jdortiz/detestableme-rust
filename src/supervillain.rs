@@ -4,17 +4,21 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 
+use crate::Sidekick;
+
 /// Type that represents supervillains.
-pub struct Supervillain {
+#[derive(Default)]
+pub struct Supervillain<'a> {
     pub first_name: String,
     pub last_name: String,
+    pub sidekick: Option<Sidekick<'a>>,
 }
 
 pub trait Megaweapon {
     fn shoot(&self);
 }
 
-impl Supervillain {
+impl Supervillain<'_> {
     /// Return the value of the full name as a single string.
     ///
     /// Full name is produced concatenating first name, a single space, and the last name.
@@ -49,7 +53,7 @@ impl Supervillain {
     }
 }
 
-impl TryFrom<&str> for Supervillain {
+impl TryFrom<&str> for Supervillain<'_> {
     type Error = anyhow::Error;
     fn try_from(name: &str) -> Result<Self, Self::Error> {
         let components = name.split(" ").collect::<Vec<_>>();
@@ -59,6 +63,7 @@ impl TryFrom<&str> for Supervillain {
             Ok(Supervillain {
                 first_name: components[0].to_string(),
                 last_name: components[1].to_string(),
+                sidekick: None,
             })
         }
     }
@@ -116,7 +121,9 @@ mod tests {
         // Act
         let result = Supervillain::try_from("");
         // Assert
-        let Err(_) = result else { panic!("Unexpected value returned by try_from"); };
+        let Err(_) = result else {
+            panic!("Unexpected value returned by try_from");
+        };
     }
     #[test_context(Context)]
     #[test]
@@ -130,7 +137,7 @@ mod tests {
     }
     #[test_context(AsyncContext)]
     #[tokio::test]
-    async fn plan_is_sadly_expected(ctx: &mut AsyncContext) {
+    async fn plan_is_sadly_expected(ctx: &mut AsyncContext<'static>) {
         assert_eq!(ctx.sut.come_up_with_plan().await, "Take over the world!");
     }
     struct WeaponDouble {
@@ -148,30 +155,32 @@ mod tests {
             *self.is_shot.borrow_mut() = true;
         }
     }
-    struct Context {
-        sut: Supervillain,
+    struct Context<'a> {
+        sut: Supervillain<'a>,
     }
-    impl TestContext for Context {
-        fn setup() -> Context {
+    impl<'a> TestContext for Context<'a> {
+        fn setup() -> Context<'a> {
             Context {
                 sut: Supervillain {
                     first_name: test_common::PRIMARY_FIRST_NAME.to_string(),
                     last_name: test_common::PRIMARY_LAST_NAME.to_string(),
+                    ..Default::default()
                 },
             }
         }
         fn teardown(self) {}
     }
-    struct AsyncContext {
-        sut: Supervillain,
+    struct AsyncContext<'a> {
+        sut: Supervillain<'a>,
     }
     #[async_trait::async_trait]
-    impl AsyncTestContext for AsyncContext {
-        async fn setup() -> AsyncContext {
+    impl<'a> AsyncTestContext for AsyncContext<'a> {
+        async fn setup() -> AsyncContext<'a> {
             AsyncContext {
                 sut: Supervillain {
                     first_name: test_common::PRIMARY_FIRST_NAME.to_string(),
                     last_name: test_common::PRIMARY_LAST_NAME.to_string(),
+                    ..Default::default()
                 },
             }
         }
