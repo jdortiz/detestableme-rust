@@ -90,7 +90,7 @@ mod tests {
         assert_eq!(ctx.sut.last_name, test_common::SECONDARY_LAST_NAME);
     }
     #[test_context(Context)]
-    #[ignore]
+    // #[ignore]
     #[test]
     #[should_panic(expected = "Name must have first and last name")]
     fn set_full_name_panics_with_empty_name(ctx: &mut Context) {
@@ -111,7 +111,7 @@ mod tests {
         Ok(())
     }
     #[test]
-    #[ignore]
+    // #[ignore]
     fn from_str_slice_produces_error_with_less_than_two_substrings() {
         // Act
         let result = Supervillain::try_from("");
