@@ -6,7 +6,7 @@ use anyhow::anyhow;
 
 #[cfg(not(test))]
 use crate::sidekick::Sidekick;
-use crate::{Gadget, Henchman};
+use crate::{Cipher, Gadget, Henchman};
 #[cfg(test)]
 use tests::doubles::Sidekick;
 
@@ -16,6 +16,7 @@ pub struct Supervillain<'a> {
     pub first_name: String,
     pub last_name: String,
     pub sidekick: Option<Sidekick<'a>>,
+    pub shared_key: String,
 }
 
 pub trait Megaweapon {
@@ -80,6 +81,13 @@ impl Supervillain<'_> {
         henchman.do_hard_things();
         henchman.fight_enemies();
     }
+
+    pub fn tell_plans<C: Cipher>(&self, secret: &str, cipher: &C) {
+        if let Some(ref sidekick) = self.sidekick {
+            let ciphered_msg = cipher.transform(secret, &self.shared_key);
+            sidekick.tell(ciphered_msg);
+        }
+    }
 }
 
 impl TryFrom<&str> for Supervillain<'_> {
@@ -93,6 +101,7 @@ impl TryFrom<&str> for Supervillain<'_> {
                 first_name: components[0].to_string(),
                 last_name: components[1].to_string(),
                 sidekick: None,
+                ..Default::default()
             })
         }
     }
@@ -222,7 +231,21 @@ mod tests {
 
         ctx.sut.start_world_domination_stage2(henchman);
     }
+    #[test_context(Context)]
+    #[test]
+    fn tell_plans_sends_ciphered_message(ctx: &mut Context) {
+        let mut sk_double = doubles::Sidekick::new();
+        sk_double.assertions = vec![Box::new(move |s| {
+            s.verify_received_msg(test_common::MAIN_CIPHERED_MESSAGE)
+        })];
+        ctx.sut.sidekick = Some(sk_double);
+        let fake_cipher = CipherDouble {};
+
+        ctx.sut
+            .tell_plans(test_common::MAIN_SECRET_MESSAGE, &fake_cipher);
+    }
     pub(crate) mod doubles {
+        use std::cell::RefCell;
         use std::marker::PhantomData;
 
         use crate::Gadget;
@@ -231,6 +254,8 @@ mod tests {
             phantom: PhantomData<&'a ()>,
             pub agree_answer: bool,
             pub targets: Vec<String>,
+            pub received_msg: RefCell<String>,
+            pub assertions: Vec<Box<dyn Fn(&Sidekick) -> () + Send>>,
         }
 
         impl<'a> Sidekick<'a> {
@@ -239,6 +264,8 @@ mod tests {
                     phantom: PhantomData,
                     agree_answer: false,
                     targets: vec![],
+                    received_msg: RefCell::new(String::from("")),
+                    assertions: vec![],
                 }
             }
             pub fn agree(&self) -> bool {
@@ -247,6 +274,28 @@ mod tests {
             pub fn get_weak_targets<G: Gadget>(&self, _gadget: &G) -> Vec<String> {
                 self.targets.clone()
             }
+            pub fn tell(&self, ciphered_msg: String) {
+                *self.received_msg.borrow_mut() = ciphered_msg;
+            }
+            pub fn verify_received_msg(&self, expected_msg: &str) {
+                assert_eq!(*self.received_msg.borrow(), expected_msg);
+            }
+        }
+
+        impl Drop for Sidekick<'_> {
+            fn drop(&mut self) {
+                for a in &self.assertions {
+                    a(self);
+                }
+            }
+        }
+    }
+
+    struct CipherDouble;
+
+    impl Cipher for CipherDouble {
+        fn transform(&self, secret: &str, _key: &str) -> String {
+            String::from("+") + secret + "+"
         }
     }
 
