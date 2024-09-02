@@ -3,12 +3,14 @@
 use std::time::Duration;
 
 use anyhow::anyhow;
+#[cfg(test)]
+use mockall::{automock, predicate::eq};
+#[cfg(test)]
+use mockall_double::double;
 
-#[cfg(not(test))]
+#[cfg_attr(test, double)]
 use crate::sidekick::Sidekick;
 use crate::{Cipher, Gadget, Henchman};
-#[cfg(test)]
-use tests::doubles::Sidekick;
 
 /// Type that represents supervillains.
 #[derive(Default)]
@@ -19,6 +21,7 @@ pub struct Supervillain<'a> {
     pub shared_key: String,
 }
 
+#[cfg_attr(test, automock)]
 pub trait Megaweapon {
     fn shoot(&self);
 }
@@ -109,11 +112,15 @@ impl TryFrom<&str> for Supervillain<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
+    use mockall::Sequence;
+    use test_context::{test_context, AsyncTestContext, TestContext};
 
     use super::*;
+
+    use crate::cipher::MockCipher;
+    use crate::gadget::MockGadget;
+    use crate::henchman::MockHenchman;
     use crate::test_common;
-    use test_context::{test_context, AsyncTestContext, TestContext};
 
     #[test_context(Context)]
     #[test]
@@ -167,11 +174,11 @@ mod tests {
     #[test]
     fn attack_shoots_weapon(ctx: &mut Context) {
         // Arrange
-        let weapon = WeaponDouble::new();
+        let mut weapon = MockMegaweapon::new();
+        weapon.expect_shoot().once().return_const(());
         // Act
         ctx.sut.attack(&weapon);
-        // Assert
-        assert!(*weapon.is_shot.borrow());
+        // Assert: automatic verification of the mock on drop
     }
     #[test_context(AsyncContext)]
     #[tokio::test]
@@ -181,9 +188,10 @@ mod tests {
     #[test_context(Context)]
     #[test]
     fn fire_sidekick_if_doesnt_agree_with_conspiracy(ctx: &mut Context) {
-        let mut sk_double = doubles::Sidekick::new();
-        sk_double.agree_answer = false;
-        ctx.sut.sidekick = Some(sk_double);
+        let mut mock_sidekick = Sidekick::new();
+        mock_sidekick.expect_agree().once().return_const(false);
+        ctx.sut.sidekick = Some(mock_sidekick);
+
         ctx.sut.conspire();
         assert!(
             ctx.sut.sidekick.is_none(),
@@ -193,10 +201,12 @@ mod tests {
     #[test_context(Context)]
     #[test]
     fn keep_sidekick_if_agrees_with_conspiracy(ctx: &mut Context) {
-        let mut sk_double = doubles::Sidekick::new();
-        sk_double.agree_answer = true;
-        ctx.sut.sidekick = Some(sk_double);
+        let mut mock_sidekick = Sidekick::new();
+        mock_sidekick.expect_agree().once().return_const(true);
+        ctx.sut.sidekick = Some(mock_sidekick);
+
         ctx.sut.conspire();
+
         assert!(ctx.sut.sidekick.is_some(), "Sidekick fired unexpectedly");
     }
     #[test_context(Context)]
@@ -208,152 +218,61 @@ mod tests {
     #[test_context(Context)]
     #[test]
     fn world_domination_stage1_builds_hq_in_first_weak_target(ctx: &mut Context) {
-        let gdummy = GadgetDummy {};
-        let mut hm_spy = HenchmanDouble::default();
-        let mut sk_double = doubles::Sidekick::new();
-        sk_double.targets = test_common::TARGETS.map(String::from).to_vec();
-        ctx.sut.sidekick = Some(sk_double);
+        let gdummy = MockGadget::new();
+        let mut mock_henchman = MockHenchman::new();
+        mock_henchman
+            .expect_build_secret_hq()
+            .with(eq(String::from(test_common::FIRST_TARGET)))
+            .return_const(());
+        let mut mock_sidekick = Sidekick::new();
+        mock_sidekick
+            .expect_get_weak_targets()
+            .once()
+            .returning(|_| test_common::TARGETS.map(String::from).to_vec());
+        ctx.sut.sidekick = Some(mock_sidekick);
 
-        ctx.sut.start_world_domination_stage1(&mut hm_spy, &gdummy);
-
-        assert_eq!(
-            hm_spy.hq_location,
-            Some(test_common::FIRST_TARGET.to_string())
-        );
+        ctx.sut
+            .start_world_domination_stage1(&mut mock_henchman, &gdummy);
     }
     #[test_context(Context)]
     #[test]
     fn world_domination_stage2_tells_henchman_to_do_hard_things_and_fight_with_enemies(
         ctx: &mut Context,
     ) {
-        let mut henchman = HenchmanDouble::default();
-        henchman.assertions = vec![Box::new(move |h| h.verify_two_things_done())];
+        let mut mock_henchman = MockHenchman::new();
+        let mut sequence = Sequence::new();
+        mock_henchman
+            .expect_do_hard_things()
+            .once()
+            .in_sequence(&mut sequence)
+            .return_const(());
+        mock_henchman
+            .expect_fight_enemies()
+            .once()
+            .in_sequence(&mut sequence)
+            .return_const(());
 
-        ctx.sut.start_world_domination_stage2(henchman);
+        ctx.sut.start_world_domination_stage2(mock_henchman);
     }
     #[test_context(Context)]
     #[test]
     fn tell_plans_sends_ciphered_message(ctx: &mut Context) {
-        let mut sk_double = doubles::Sidekick::new();
-        sk_double.assertions = vec![Box::new(move |s| {
-            s.verify_received_msg(test_common::MAIN_CIPHERED_MESSAGE)
-        })];
-        ctx.sut.sidekick = Some(sk_double);
-        let fake_cipher = CipherDouble {};
+        let mut mock_sidekick = Sidekick::new();
+        mock_sidekick
+            .expect_tell()
+            .with(eq(String::from(test_common::MAIN_CIPHERED_MESSAGE)))
+            .once()
+            .return_const(());
+        ctx.sut.sidekick = Some(mock_sidekick);
+        let mut mock_cipher = MockCipher::new();
+        mock_cipher
+            .expect_transform()
+            .returning(|secret, _| String::from("+") + secret + "+");
 
         ctx.sut
-            .tell_plans(test_common::MAIN_SECRET_MESSAGE, &fake_cipher);
-    }
-    pub(crate) mod doubles {
-        use std::cell::RefCell;
-        use std::marker::PhantomData;
-
-        use crate::Gadget;
-
-        pub struct Sidekick<'a> {
-            phantom: PhantomData<&'a ()>,
-            pub agree_answer: bool,
-            pub targets: Vec<String>,
-            pub received_msg: RefCell<String>,
-            pub assertions: Vec<Box<dyn Fn(&Sidekick) -> () + Send>>,
-        }
-
-        impl<'a> Sidekick<'a> {
-            pub fn new() -> Sidekick<'a> {
-                Sidekick {
-                    phantom: PhantomData,
-                    agree_answer: false,
-                    targets: vec![],
-                    received_msg: RefCell::new(String::from("")),
-                    assertions: vec![],
-                }
-            }
-            pub fn agree(&self) -> bool {
-                self.agree_answer
-            }
-            pub fn get_weak_targets<G: Gadget>(&self, _gadget: &G) -> Vec<String> {
-                self.targets.clone()
-            }
-            pub fn tell(&self, ciphered_msg: String) {
-                *self.received_msg.borrow_mut() = ciphered_msg;
-            }
-            pub fn verify_received_msg(&self, expected_msg: &str) {
-                assert_eq!(*self.received_msg.borrow(), expected_msg);
-            }
-        }
-
-        impl Drop for Sidekick<'_> {
-            fn drop(&mut self) {
-                for a in &self.assertions {
-                    a(self);
-                }
-            }
-        }
+            .tell_plans(test_common::MAIN_SECRET_MESSAGE, &mock_cipher);
     }
 
-    struct CipherDouble;
-
-    impl Cipher for CipherDouble {
-        fn transform(&self, secret: &str, _key: &str) -> String {
-            String::from("+") + secret + "+"
-        }
-    }
-
-    #[derive(Default)]
-    struct HenchmanDouble {
-        hq_location: Option<String>,
-        done_hard_things: RefCell<bool>,
-        fought_enemies: RefCell<bool>,
-        pub assertions: Vec<Box<dyn Fn(&HenchmanDouble) -> () + Send>>,
-    }
-
-    impl HenchmanDouble {
-        fn verify_two_things_done(&self) {
-            assert!(*self.done_hard_things.borrow() && *self.fought_enemies.borrow());
-        }
-    }
-
-    impl Henchman for HenchmanDouble {
-        fn build_secret_hq(&mut self, location: String) {
-            self.hq_location = Some(location);
-        }
-        fn do_hard_things(&self) {
-            *self.done_hard_things.borrow_mut() = true;
-        }
-        fn fight_enemies(&self) {
-            *self.fought_enemies.borrow_mut() = true;
-        }
-    }
-
-    impl Drop for HenchmanDouble {
-        fn drop(&mut self) {
-            for a in &self.assertions {
-                a(self);
-            }
-        }
-    }
-
-    struct GadgetDummy;
-
-    impl Gadget for GadgetDummy {
-        fn do_stuff(&self) {}
-    }
-
-    struct WeaponDouble {
-        pub is_shot: RefCell<bool>,
-    }
-    impl WeaponDouble {
-        fn new() -> WeaponDouble {
-            WeaponDouble {
-                is_shot: RefCell::new(false),
-            }
-        }
-    }
-    impl Megaweapon for WeaponDouble {
-        fn shoot(&self) {
-            *self.is_shot.borrow_mut() = true;
-        }
-    }
     struct Context<'a> {
         sut: Supervillain<'a>,
     }
