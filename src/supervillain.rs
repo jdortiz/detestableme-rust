@@ -117,6 +117,7 @@ mod tests {
 
     use super::*;
 
+    use crate::cipher::MockCipher;
     use crate::gadget::MockGadget;
     use crate::henchman::MockHenchman;
     use crate::test_common;
@@ -263,18 +264,13 @@ mod tests {
             .once()
             .return_const(());
         ctx.sut.sidekick = Some(mock_sidekick);
-        let fake_cipher = CipherDouble {};
+        let mut mock_cipher = MockCipher::new();
+        mock_cipher
+            .expect_transform()
+            .returning(|secret, _| String::from("+") + secret + "+");
 
         ctx.sut
-            .tell_plans(test_common::MAIN_SECRET_MESSAGE, &fake_cipher);
-    }
-
-    struct CipherDouble;
-
-    impl Cipher for CipherDouble {
-        fn transform(&self, secret: &str, _key: &str) -> String {
-            String::from("+") + secret + "+"
-        }
+            .tell_plans(test_common::MAIN_SECRET_MESSAGE, &mock_cipher);
     }
 
     struct Context<'a> {
