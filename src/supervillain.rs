@@ -3,6 +3,8 @@
 use std::time::Duration;
 
 use anyhow::anyhow;
+#[cfg(test)]
+use mockall::automock;
 
 #[cfg(not(test))]
 use crate::sidekick::Sidekick;
@@ -19,6 +21,7 @@ pub struct Supervillain<'a> {
     pub shared_key: String,
 }
 
+#[cfg_attr(test, automock)]
 pub trait Megaweapon {
     fn shoot(&self);
 }
@@ -111,9 +114,11 @@ impl TryFrom<&str> for Supervillain<'_> {
 mod tests {
     use std::cell::RefCell;
 
-    use super::*;
-    use crate::test_common;
     use test_context::{test_context, AsyncTestContext, TestContext};
+
+    use super::*;
+
+    use crate::test_common;
 
     #[test_context(Context)]
     #[test]
@@ -167,11 +172,11 @@ mod tests {
     #[test]
     fn attack_shoots_weapon(ctx: &mut Context) {
         // Arrange
-        let weapon = WeaponDouble::new();
+        let mut weapon = MockMegaweapon::new();
+        weapon.expect_shoot().once().return_const(());
         // Act
         ctx.sut.attack(&weapon);
-        // Assert
-        assert!(*weapon.is_shot.borrow());
+        // Assert: automatic verification of the mock on drop
     }
     #[test_context(AsyncContext)]
     #[tokio::test]
@@ -339,21 +344,6 @@ mod tests {
         fn do_stuff(&self) {}
     }
 
-    struct WeaponDouble {
-        pub is_shot: RefCell<bool>,
-    }
-    impl WeaponDouble {
-        fn new() -> WeaponDouble {
-            WeaponDouble {
-                is_shot: RefCell::new(false),
-            }
-        }
-    }
-    impl Megaweapon for WeaponDouble {
-        fn shoot(&self) {
-            *self.is_shot.borrow_mut() = true;
-        }
-    }
     struct Context<'a> {
         sut: Supervillain<'a>,
     }
