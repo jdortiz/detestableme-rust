@@ -118,6 +118,7 @@ mod tests {
 
     use super::*;
 
+    use crate::gadget::MockGadget;
     use crate::test_common;
 
     #[test_context(Context)]
@@ -216,7 +217,7 @@ mod tests {
     #[test_context(Context)]
     #[test]
     fn world_domination_stage1_builds_hq_in_first_weak_target(ctx: &mut Context) {
-        let gdummy = GadgetDummy {};
+        let gdummy = MockGadget::new();
         let mut hm_spy = HenchmanDouble::default();
         let mut mock_sidekick = Sidekick::new();
         mock_sidekick
@@ -298,12 +299,6 @@ mod tests {
                 a(self);
             }
         }
-    }
-
-    struct GadgetDummy;
-
-    impl Gadget for GadgetDummy {
-        fn do_stuff(&self) {}
     }
 
     struct Context<'a> {
